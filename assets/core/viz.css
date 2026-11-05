@@ -1,0 +1,365 @@
+/* =========================================================
+   地质剖面可视化层 Viz
+   ---------------------------------------------------------
+   一套"深度剖面"语言，在首页 / 作业链 / 环节 / 场景 / 方法页复用：
+   地层带 + 流体色块 + 井 + 断层 + 压力系数 + 图例读数。
+   所有颜色取自 tokens.css 的 --viz-*，不在本文件写死主色。
+   ========================================================= */
+
+/* ---------------- 剖面卡片 ---------------- */
+.vz{
+  border:1px solid var(--line-2);border-radius:var(--r-l);
+  background:linear-gradient(180deg,var(--card) 0%,var(--card-soft) 100%);
+  box-shadow:var(--sh-2);overflow:hidden;
+}
+.vz-head{
+  display:flex;align-items:flex-start;justify-content:space-between;gap:22px;
+  padding:16px 18px 14px;border-bottom:1px solid var(--line);
+  flex-wrap:wrap;
+}
+.vz-head-l{min-width:0;max-width:64ch}
+.vz-head .kicker{font-size:9px}
+.vz-head h3{
+  font-size:clamp(15px,1.5vw,18px);margin-top:7px;letter-spacing:-.008em;
+}
+.vz-head p{font-size:12px;color:var(--ink-3);line-height:1.68;margin-top:5px}
+.vz-stats{
+  display:flex;flex-wrap:wrap;gap:5px 16px;margin-top:10px;
+  font-family:var(--mono);font-size:9px;letter-spacing:.04em;color:var(--ink-4);
+}
+.vz-stats span{display:inline-flex;align-items:baseline;gap:5px}
+.vz-stats b{font-size:11px;color:var(--ink-2);font-weight:500}
+.vz-head-r{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding-top:2px}
+
+.vz-toggle{
+  display:inline-flex;align-items:center;gap:6px;
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.05em;
+  padding:5px 9px;border:1px solid var(--line-2);border-radius:5px;
+  color:var(--ink-3);background:var(--card);
+  transition:all .16s;white-space:nowrap;
+}
+.vz-toggle i{
+  width:7px;height:7px;border-radius:2px;background:var(--line-3);
+  transition:background .16s;flex-shrink:0;
+}
+.vz-toggle:hover{border-color:var(--line-3);color:var(--ink-2)}
+.vz-toggle.on{
+  color:var(--jade-d);border-color:rgba(47,125,107,.30);
+  background:var(--jade-l);
+}
+.vz-toggle.on i{background:var(--jade)}
+.vz-toggle[data-vz-layer="pressure"].on i{background:var(--clay)}
+.vz-toggle[data-vz-layer="pressure"].on{border-color:rgba(178,106,57,.34);background:var(--clay-l);color:var(--clay-d)}
+.vz-toggle[data-vz-layer="faults"].on i{background:var(--viz-fault)}
+.vz-toggle[data-vz-layer="faults"].on{border-color:rgba(163,78,59,.30);background:#f9ece7;color:#8f4433}
+.vz-toggle[data-vz-layer="wells"].on i{background:var(--viz-well)}
+.vz-toggle[data-vz-layer="wells"].on{border-color:rgba(52,62,67,.24);background:var(--paper-2);color:var(--ink-2)}
+
+.vz-canvas{
+  position:relative;overflow-x:auto;overflow-y:hidden;
+  background:
+    radial-gradient(120% 90% at 50% -20%, rgba(255,255,255,.85), rgba(255,255,255,0) 70%),
+    var(--card);
+  scrollbar-width:thin;
+}
+.vz-canvas::-webkit-scrollbar{height:7px}
+.vz-svg{display:block;width:100%;height:auto;min-width:820px;touch-action:auto}
+.vz-svg text{font-family:var(--sans)}
+.vz-mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* ---------------- SVG：底图 ---------------- */
+.vz-surface{stroke:var(--ink-2);stroke-width:1.1;fill:none}
+.vz-surface-fill{fill:#fbf8ee}
+.vz-grid{stroke:#e6e0d1;stroke-width:1;stroke-dasharray:1 4;opacity:.55}
+.vz-axis-tick{stroke:var(--line-3);stroke-width:1}
+.vz-axis-label{font-family:var(--mono);font-size:10.5px;fill:var(--ink-4);letter-spacing:.02em}
+.vz-axis-title{font-family:var(--mono);font-size:10px;fill:var(--ink-4);letter-spacing:.16em}
+.vz-frame{fill:none;stroke:var(--line-2);stroke-width:1}
+.vz-plot-bg{fill:#fcfaf3}
+
+/* 地层带 */
+.vz-band{stroke:var(--line-2);stroke-width:.9}
+.vz-band[data-l="tao"]{fill:var(--viz-sand)}
+.vz-band[data-l="dong"]{fill:var(--viz-shale)}
+.vz-band[data-l="s1"]{fill:var(--viz-mud)}
+.vz-band[data-l="s2"]{fill:var(--viz-mud2)}
+.vz-band[data-l="s3"]{fill:var(--viz-source)}
+.vz-band[data-l="s4"]{fill:var(--viz-salt)}
+.vz-band[data-l="base"]{fill:var(--viz-base)}
+
+.vz-hatch{opacity:.5}
+.vz-strat-label{
+  font-size:12px;fill:var(--ink);font-weight:680;letter-spacing:.04em;
+  paint-order:stroke;stroke:rgba(251,250,246,.95);stroke-width:4.6px;stroke-linejoin:round;
+}
+.vz-strat-sub{
+  font-family:var(--mono);font-size:8px;fill:var(--ink-4);letter-spacing:.04em;
+  paint-order:stroke;stroke:rgba(251,250,246,.9);stroke-width:3px;
+}
+
+/* 流体色块 */
+.vz-zone{cursor:pointer;transition:opacity .18s, filter .18s}
+.vz-zone[data-f="gas"]{fill:var(--viz-gas);fill-opacity:.58}
+.vz-zone[data-f="oil"]{fill:var(--viz-oil);fill-opacity:.58}
+.vz-zone[data-f="water"]{fill:var(--viz-water);fill-opacity:.50}
+.vz-zone[data-f="cond"]{fill:var(--viz-cond);fill-opacity:.48}
+.vz-zone[data-f="dry"]{fill:var(--viz-dry);fill-opacity:.32}
+.vz-zone[data-f="cap"]{fill:var(--viz-cond);fill-opacity:.66}
+.vz-laminae{stroke:rgba(255,255,255,.5);stroke-width:.9;fill:none;pointer-events:none}
+.vz-laminae-oil{stroke:rgba(255,255,255,.30)}
+.vz-lens-line{stroke:rgba(70,60,40,.30);stroke-width:.8;fill:none;pointer-events:none}
+.vz-contact{
+  fill:none;stroke-width:22;stroke-linecap:round;stroke-opacity:.5;
+  pointer-events:none;
+}
+
+/* 井 / 断层 / 压力 */
+.vz-well{stroke:var(--viz-well);stroke-width:1.25;fill:none}
+.vz-well-head{fill:var(--viz-well)}
+.vz-well-label{
+  font-size:11.5px;fill:var(--ink-2);font-weight:600;letter-spacing:.03em;
+  paint-order:stroke;stroke:var(--paper);stroke-width:3px;
+}
+.vz-perf{stroke:var(--ink-2);stroke-width:1.2;opacity:.8}
+.vz-well-hit{stroke:transparent;stroke-width:16;fill:none;cursor:pointer}
+.vz-well-g:hover .vz-well,.vz-well-g.is-hot .vz-well{stroke:var(--jade);stroke-width:2.2}
+.vz-well-g:hover .vz-well-label,.vz-well-g.is-hot .vz-well-label{fill:var(--jade-d)}
+
+.vz-fault{stroke:var(--viz-fault);stroke-width:1.7;fill:none;stroke-linecap:round;opacity:.85}
+.vz-fault-minor{stroke-width:1.2;opacity:.62}
+.vz-fault-tick{stroke:var(--viz-fault);stroke-width:1;opacity:.5}
+.vz-fault-g{cursor:pointer}
+.vz-fault-g:hover .vz-fault,.vz-fault-g.is-hot .vz-fault{stroke-width:2.6;opacity:1}
+.vz-fault-label{font-family:var(--mono);font-size:9px;fill:var(--viz-fault);letter-spacing:.06em}
+
+.vz-contour{
+  fill:none;stroke:var(--clay);stroke-width:1;stroke-dasharray:4 3;opacity:.72;
+}
+.vz-contour-label{
+  font-family:var(--mono);font-size:9.5px;fill:var(--clay-d);letter-spacing:.04em;
+  paint-order:stroke;stroke:rgba(251,250,246,.92);stroke-width:3px;
+}
+
+/* 标注 / 指引 */
+.vz-callout-line{stroke:var(--ink-4);stroke-width:.9;fill:none}
+.vz-callout-title{font-size:12.5px;fill:var(--ink);font-weight:650;letter-spacing:.03em}
+.vz-callout-sub{
+  font-family:var(--mono);font-size:10px;fill:var(--ink-4);letter-spacing:.02em;
+}
+.vz-annot{
+  font-size:11px;fill:var(--ink-2);letter-spacing:.02em;
+  paint-order:stroke;stroke:var(--paper);stroke-width:3.5px;
+}
+.vz-annot-t{
+  font-size:11.5px;fill:var(--ink);font-weight:650;
+  paint-order:stroke;stroke:var(--paper);stroke-width:3.5px;
+}
+
+/* 指针读数线 */
+.vz-guide{stroke:var(--jade);stroke-width:1;stroke-dasharray:3 3;opacity:0;pointer-events:none}
+.vz-guide-bubble{opacity:0;pointer-events:none}
+.vz-guide-bubble rect{fill:var(--jade-d);rx:3}
+.vz-guide-bubble text{font-family:var(--mono);font-size:9px;fill:#fff;letter-spacing:.03em}
+.vz-canvas.is-live .vz-guide,.vz-canvas.is-live .vz-guide-bubble{opacity:1}
+
+/* 小节高亮带（环节 / 场景缩略剖面） */
+.vz-hl{fill:var(--jade);fill-opacity:.18;stroke:rgba(47,125,107,.55);stroke-width:1;stroke-dasharray:4 3}
+.vz-hl-core{fill:var(--jade);fill-opacity:.30}
+.vz-hl-edge{stroke:var(--jade);stroke-width:1.1;stroke-dasharray:4 3;opacity:.75}
+.vz-hl-label{
+  font-family:var(--mono);font-size:9px;fill:var(--jade-d);letter-spacing:.04em;
+  paint-order:stroke;stroke:var(--paper);stroke-width:3px;
+}
+.vz-glyph{color:var(--ink-2);fill:none;stroke:currentColor;stroke-width:1.35;stroke-linecap:round;stroke-linejoin:round}
+.vz-glyph .fill{fill:currentColor;stroke:none}
+.vz-glyph-box{fill:var(--card);stroke:var(--line-2);stroke-width:1}
+
+/* ---------------- 卡片底部：图例 / 读数 ---------------- */
+.vz-foot{border-top:1px solid var(--line);background:var(--card-soft)}
+.vz-legend{
+  display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;
+  padding:10px 18px;border-bottom:1px solid var(--line);
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.04em;color:var(--ink-3);
+}
+.vz-chip{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.vz-chip i{width:14px;height:9px;border-radius:2px;display:block;flex-shrink:0;border:1px solid rgba(0,0,0,.06)}
+.vz-chip i[data-f="gas"]{background:var(--viz-gas);opacity:.6}
+.vz-chip i[data-f="oil"]{background:var(--viz-oil);opacity:.62}
+.vz-chip i[data-f="water"]{background:var(--viz-water);opacity:.56}
+.vz-chip i[data-f="cond"]{background:var(--viz-cond);opacity:.55}
+.vz-chip i[data-f="dry"]{background:var(--viz-dry);opacity:.4}
+.vz-chip i[data-f="trans"]{background:linear-gradient(90deg,var(--viz-oil),var(--viz-water));opacity:.65}
+.vz-chip i.line{background:none;border:0;border-top:2px solid var(--viz-fault);height:0;border-radius:0}
+.vz-chip i.line.well{border-top:1.5px solid var(--viz-well)}
+.vz-chip i.line.press{border-top:1.5px dashed var(--clay)}
+.vz-chip i.hatch{background:repeating-linear-gradient(90deg,var(--viz-source) 0 2px,#f7f6ef 2px 4px);border-color:var(--line-2)}
+.vz-chip i.hatch.salt{background:repeating-linear-gradient(45deg,var(--viz-salt) 0 2px,#f7f6ef 2px 4px)}
+
+.vz-status{
+  display:flex;align-items:center;justify-content:space-between;gap:18px;
+  padding:9px 18px;min-height:44px;
+}
+.vz-read{flex:1;min-width:0}
+.vz-read{display:flex;align-items:baseline;gap:9px;min-width:0;flex-wrap:wrap}
+.vz-read-k{
+  font-family:var(--mono);font-size:8.5px;letter-spacing:.14em;color:var(--ink-4);
+  border:1px solid var(--line-2);border-radius:3px;padding:1px 5px;flex-shrink:0;
+}
+.vz-read b{font-size:12.5px;color:var(--ink);font-weight:650}
+.vz-read span{font-size:11px;color:var(--ink-3)}
+.vz-read a{color:var(--jade-d);font-weight:600;border-bottom:1px solid rgba(47,125,107,.3)}
+.vz-depth{
+  font-family:var(--mono);font-size:9px;letter-spacing:.08em;color:var(--ink-4);
+  display:flex;align-items:baseline;gap:5px;flex-shrink:0;
+}
+.vz-depth b{font-size:14px;color:var(--ink-2);font-weight:500;font-variant-numeric:tabular-nums}
+.vz-note{
+  padding:8px 18px 11px;font-size:10px;color:var(--ink-4);
+  font-family:var(--mono);letter-spacing:.03em;
+}
+.vz-only-mobile{display:none}
+
+/* ---------------- 首页剖面章节 ---------------- */
+.prof-sec{padding-top:30px;scroll-margin-top:68px}
+.prof-notes{
+  display:grid;grid-template-columns:repeat(4,1fr);gap:1px;
+  margin-top:14px;background:var(--line);border:1px solid var(--line);
+  border-radius:var(--r-m);overflow:hidden;
+}
+.prof-note{
+  background:var(--card);padding:11px 13px;display:block;
+  transition:background .16s;
+}
+.prof-note:hover{background:var(--jade-l)}
+.prof-note .pn-k{
+  font-family:var(--mono);font-size:8.5px;letter-spacing:.12em;color:var(--ink-4);
+  display:flex;gap:6px;align-items:center;
+}
+.prof-note .pn-k i{width:5px;height:5px;border-radius:50%;background:var(--jade);flex-shrink:0}
+.prof-note b{display:block;font-size:12px;margin-top:5px;color:var(--ink)}
+.prof-note span{font-size:10.5px;color:var(--ink-3);line-height:1.55;display:block;margin-top:2px}
+
+/* ---------------- 作业链：环节剖面胶片 ---------------- */
+.film-wrap{margin:16px 0 8px}
+.film-head{
+  display:flex;align-items:baseline;justify-content:space-between;gap:16px;
+  border-top:1px solid var(--line-2);padding-top:9px;margin-bottom:10px;flex-wrap:wrap;
+}
+.film-head .kicker{font-size:9px}
+.film-head .fh-r{font-family:var(--mono);font-size:9px;color:var(--ink-4);letter-spacing:.05em}
+.film-scroll{overflow-x:auto;padding-bottom:8px}
+.film-scroll::-webkit-scrollbar{height:6px}
+.film{
+  display:grid;grid-template-columns:repeat(13,minmax(112px,1fr));
+  gap:6px;min-width:1500px;padding-top:2px;
+}
+.film-item{
+  display:block;border:1px solid var(--line);border-radius:8px;background:var(--card);
+  padding:7px 7px 8px;transition:all .16s;position:relative;
+}
+.film-item:hover{border-color:rgba(47,125,107,.36);box-shadow:var(--sh-2);transform:translateY(-2px)}
+.film-item .fi-top{
+  display:flex;align-items:center;justify-content:space-between;gap:4px;
+  font-family:var(--mono);font-size:8px;letter-spacing:.08em;color:var(--ink-4);
+}
+.film-item .fi-top b{font-weight:500;color:var(--jade-d)}
+.film-svg{display:block;width:100%;height:auto;margin-top:4px}
+.film-item .fi-name{
+  font-size:11px;font-weight:600;margin-top:5px;color:var(--ink);letter-spacing:.01em;
+}
+.film-item .fi-d{
+  font-family:var(--mono);font-size:8px;color:var(--ink-4);margin-top:2px;letter-spacing:.02em;
+}
+
+/* ---------------- 环节页：环节剖面 ---------------- */
+.stage-hero{
+  display:grid;grid-template-columns:minmax(0,460px) minmax(0,1fr);gap:30px;
+  align-items:center;margin:2px 0 20px;padding:16px 18px;
+  border:1px solid var(--line-2);border-radius:var(--r-l);
+  background:linear-gradient(135deg,var(--card) 0%,var(--card-soft) 100%);
+  box-shadow:var(--sh-1);
+}
+.stage-hero-fig{min-width:0;margin:0 auto}
+.stage-hero-fig svg{display:block;width:100%;height:auto}
+.stage-hero-txt h3{font-size:16px;margin-top:8px;letter-spacing:-.006em}
+.stage-hero-txt p{font-size:12.4px;color:var(--ink-3);line-height:1.75;margin-top:6px;max-width:62ch}
+.sh-facts{display:flex;gap:22px;flex-wrap:wrap;margin-top:13px;padding-top:11px;border-top:1px solid var(--line)}
+.sh-fact .l{font-family:var(--mono);font-size:8px;letter-spacing:.12em;color:var(--ink-4)}
+.sh-fact .v{font-size:13px;font-weight:650;margin-top:3px;color:var(--ink)}
+.sh-fact .v small{font-family:var(--mono);font-size:9px;color:var(--ink-4);font-weight:400;margin-left:3px}
+
+/* ---------------- 场景页：剖面定位 ---------------- */
+.scene-locator{
+  display:grid;grid-template-columns:minmax(0,1fr) 372px;gap:24px;align-items:center;
+  margin:2px 0 4px;padding:12px 16px;
+  border:1px solid var(--line-2);border-radius:var(--r-m);background:var(--card-soft);
+}
+.sv-k{font-family:var(--mono);font-size:8.5px;letter-spacing:.14em;color:var(--ink-4)}
+.scene-locator h4{font-size:13.5px;margin-top:5px}
+.scene-locator p{font-size:11.5px;color:var(--ink-3);line-height:1.7;margin-top:4px;max-width:64ch}
+.sv-facts{display:flex;gap:16px;flex-wrap:wrap;margin-top:8px}
+.sv-facts span{font-family:var(--mono);font-size:9px;color:var(--ink-3);letter-spacing:.03em}
+.sv-facts b{color:var(--ink);font-weight:600}
+.scene-locator .sv-fig svg{display:block;width:100%;height:auto}
+
+/* ---------------- 方法页：深度分布 ---------------- */
+.method-viz{
+  border:1px solid var(--line-2);border-radius:var(--r-m);background:var(--card);
+  padding:12px 14px 6px;margin:4px 0 6px;box-shadow:var(--sh-1);
+  overflow-x:auto;
+}
+.method-viz svg{display:block;width:100%;height:auto}
+.method-viz .mv-cap{
+  display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;
+  font-family:var(--mono);font-size:9px;letter-spacing:.05em;color:var(--ink-4);
+  padding:2px 2px 6px;border-top:1px solid var(--line);margin-top:4px;
+}
+
+/* ---------------- 页脚地层条 ---------------- */
+.ftr-strata{
+  height:4px;width:100%;
+  background:linear-gradient(90deg,
+    var(--viz-sand) 0 16%,var(--viz-shale) 16% 30%,var(--viz-mud) 30% 42%,
+    var(--viz-mud2) 42% 55%,var(--viz-source) 55% 74%,var(--viz-salt) 74% 88%,var(--viz-base) 88% 100%);
+  opacity:.9;
+}
+
+/* ---------------- 响应式 ---------------- */
+@media (max-width:1080px){
+  .prof-notes{grid-template-columns:1fr 1fr}
+  .stage-hero{grid-template-columns:1fr;gap:14px}
+  .stage-hero-fig{max-width:560px}
+  .scene-locator{grid-template-columns:1fr;gap:10px}
+  .scene-locator .sv-fig{max-width:360px}
+}
+@media (max-width:760px){
+  .hdr-in{gap:10px}
+  .nav a{padding:7px 9px;font-size:12.5px}
+  .nav .nav-add{display:none}
+  .brand-txt span{display:none}
+  .sr-meta .tag{white-space:normal;max-width:100%;line-height:1.5}
+}
+@media (max-width:700px){
+  .vz-only-mobile{display:inline}
+  .vz-head{padding:13px 14px 12px;gap:12px}
+  .vz-head-r{gap:5px}
+  .vz-toggle{font-size:8.5px;padding:4px 7px}
+  .vz-legend{padding:9px 14px;gap:6px 10px;font-size:8.5px}
+  .vz-status{padding:8px 14px;flex-wrap:wrap;gap:6px}
+  .vz-note{padding:7px 14px 10px}
+  .prof-notes{grid-template-columns:1fr}
+  .stage-hero{padding:13px 14px}
+  .scene-locator{padding:11px 13px}
+  .film{min-width:1240px}
+}
+
+/* ---------------- 交互补充 ---------------- */
+.vz-zone.is-hot{
+  fill-opacity:.76;
+  stroke:rgba(36,43,46,.55);
+  stroke-width:1.1;
+}
+.vz-mini-svg{display:block;width:100%;height:auto}
+.vz-mini-svg .vz-zone{pointer-events:none}
+.vz-method-svg{display:block;width:100%;height:auto;min-width:900px}
+.vz [hidden]{display:none!important}
